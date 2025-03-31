@@ -84,7 +84,24 @@ async def handle_video(message: types.Message):
 @dp.callback_query(F.data.startswith("crop:"))
 async def crop_callback(callback: CallbackQuery):
     try:
-        _, position, msg_id = callback.data.split(":")
+        logging.info(f"[CALLBACK] data: {callback.data}")
+
+        parts = callback.data.split(":")
+        if len(parts) != 3:
+            logging.warning(f"[CALLBACK] Неверный формат: {callback.data}")
+            await callback.message.answer("⚠️ Ошибка формата кнопки")
+            return
+
+        _, position, msg_id = parts
+        logging.info(f"[CALLBACK] position={position}, msg_id={msg_id}")
+
+        if msg_id not in pending_videos:
+            logging.warning(f"[CALLBACK] msg_id {msg_id} не найден в pending_videos")
+            await callback.message.answer("⚠️ Видео не найдено, начни сначала")
+            return
+
+        file_id, orientation, user_id = pending_videos[msg_id]
+
         file_id, orientation, user_id = pending_videos.get(msg_id)
         input_file = f"input_{user_id}.mp4"
         output_file = f"output_{user_id}.mp4"
