@@ -65,10 +65,10 @@ async def handle_video(message: types.Message):
 @dp.callback_query()
 async def debug_all_callbacks(callback: CallbackQuery):
     logging.info(f"[DEBUG] Callback data: {callback.data}")
-    await callback.answer("👀 Обработка…")
+    await callback.answer("⚙️ Обработка...")
 
 
-@dp.callback_query(F.data.regexp(r"^crop:(left|center|right|top|bottom):\d+$"))
+@dp.callback_query(F.data.regexp(r"^crop:(left|center|right|top|bottom|custom):\d+$"))
 async def crop_callback(callback: CallbackQuery):
     try:
         logging.info(f"[CALLBACK] Получен колбэк: {callback.data}")
@@ -97,6 +97,16 @@ async def crop_callback(callback: CallbackQuery):
             return
 
         await bot.download_file(file.file_path, input_file)
+
+        if position == "custom":
+            probe = subprocess.run([
+                "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                "stream=width,height", "-of", "csv=s=x:p=0", input_file
+            ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            width, height = map(int, probe.stdout.strip().split("x"))
+            custom_crop_coords[user_id] = (file_id, input_file, width, height)
+            await callback.message.edit_text("✍️ Введите координаты обрезки в формате `x:y` (например, `200:100`)", parse_mode=ParseMode.MARKDOWN)
+            return
 
         if orientation == "horizontal":
             crop_expr = {
@@ -202,13 +212,15 @@ async def on_shutdown(_: web.Application):
 
 
 async def handle_webhook(request: web.Request):
-    print("💥 Пришёл запрос на вебхук!")
-    ...
+    print("📬 Пришёл запрос на вебхук!")
     try:
-    data = await request.json()
-    print("🔥 RAW UPDATE:", data)
-    update = types.Update.model_validate(data)
-    await dp.feed_update(bot, update)
+        data = await request.json()
+        print("🔥 RAW UPDATE:", data)
+        update = types.Update.model_validate(data)
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        logging.exception("Ошибка при обработке вебхука:")
+    return web.Response()
 
 
 app = web.Application()
