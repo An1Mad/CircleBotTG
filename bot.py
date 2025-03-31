@@ -12,7 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "circlebotsecret")
 WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
 WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -51,7 +51,7 @@ async def handle_video(message: types.Message):
         if orientation == "horizontal":
             crop_expr = "crop=in_h:in_h:(in_w-in_h)/2:0"
         else:
-            crop_expr = "crop=in_w:in_w:0:(in_h-in_w)/2.5"  # чуть выше центра
+            crop_expr = "crop=in_w:in_w:0:(in_h-in_w)/2.5"
 
         cmd = [
             "ffmpeg", "-y", "-i", input_file, "-t", "60",
@@ -75,8 +75,14 @@ async def handle_video(message: types.Message):
 
 
 async def on_startup(_: web.Application):
-    await bot.set_webhook(WEBHOOK_URL)
-    logging.info(f"Webhook установлен: {WEBHOOK_URL}")
+    if not WEBHOOK_URL:
+        logging.error("❌ WEBHOOK_URL не определён, переменная RENDER_EXTERNAL_URL пуста")
+        return
+    try:
+        await bot.set_webhook(WEBHOOK_URL)
+        logging.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
+    except Exception as e:
+        logging.exception("❌ Ошибка при установке вебхука")
 
 
 async def on_shutdown(_: web.Application):
@@ -87,6 +93,7 @@ async def on_shutdown(_: web.Application):
 async def handle_webhook(request: web.Request):
     try:
         data = await request.json()
+        logging.info(f"📥 RAW UPDATE: {data}")
         update = types.Update.model_validate(data)
         await dp.feed_update(bot, update)
     except Exception as e:
