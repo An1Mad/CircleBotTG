@@ -9,9 +9,9 @@ from aiogram.types import FSInputFile
 from aiohttp import web
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "circlebotsecret")  # Любая строка, например UUID
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "circlebotsecret")
 WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
-WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")  # Render сам задаёт эту переменную
+WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 logging.basicConfig(level=logging.INFO)
@@ -94,15 +94,21 @@ async def handle_video(message: types.Message):
 
 async def on_startup(_: web.Application):
     await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"Webhook установлен: {WEBHOOK_URL}")
 
 
 async def on_shutdown(_: web.Application):
     await bot.delete_webhook()
+    logging.info("Webhook удалён")
 
 
 async def handle_webhook(request: web.Request):
-    body = await request.read()
-    await dp.feed_webhook_update(bot, request.headers, body)
+    try:
+        data = await request.json()
+        update = types.Update.model_validate(data)
+        await dp.feed_update(bot, update)
+    except Exception as e:
+        logging.exception("Ошибка при обработке вебхука:")
     return web.Response()
 
 
