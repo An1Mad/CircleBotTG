@@ -9,11 +9,10 @@ from aiogram.types import FSInputFile
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 
-# 🔐 ВСТАВЬ СЮДА СВОЙ ТОКЕН
-import os
+# 🔐 Получаем токен из переменной окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Логгинг
+# Логгирование
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
@@ -48,7 +47,7 @@ async def handle_video(message: types.Message):
                 "✅ Что можно сделать:\n"
                 "1. Отправь видео с телефона\n"
                 "2. Или перешли его себе в «Избранное», а потом сюда\n"
-                "3. Или сожми видео онлайн здесь: [tools.rotato.app/compress](https://tools.rotato.app/compress) 💻\n\n"
+                "3. Или сожми видео онлайн здесь: [tools.rotato.app/compress](https://tools.rotato.app/compress) 💻",
                 parse_mode=ParseMode.MARKDOWN
             )
             return
@@ -58,14 +57,14 @@ async def handle_video(message: types.Message):
             await message.reply("Файл слишком большой (более 49 МБ). Пожалуйста, сократи его или сожми 💾")
             return
 
-        # Генерим имена
+        # Генерация временных имён
         input_file = f"input_{message.from_user.id}.mp4"
         output_file = f"output_{message.from_user.id}.mp4"
 
-        # Скачиваем
+        # Скачивание
         await bot.download_file(file.file_path, input_file)
 
-        # Перекодировка с обрезкой до квадрата, сохранением звука
+        # Перекодировка в кружок (с сохранением звука)
         cmd = [
             "ffmpeg",
             "-y",
