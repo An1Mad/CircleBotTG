@@ -206,6 +206,7 @@ async def handle_webhook(request: web.Request):
     ...
     try:
         data = await request.json()
+print("🔥 RAW UPDATE:", data)
         update = types.Update.model_validate(data)
         await dp.feed_update(bot, update)
     except Exception as e:
