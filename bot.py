@@ -25,27 +25,7 @@ custom_crop_coords = {}  # user_id -> (file_id, input_file, width, height)
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
-    await message.answer("Привет! Отправь мне видео, и я сделаю из него видеокружок 🎥\n\n📌 Используй кнопки выбора, чтобы указать нужную часть кадра. Также можно задать свои координаты для точного кадрирования.")
-
-
-@dp.message(F.text == "/help")
-async def help_handler(message: types.Message):
-    await message.answer("📖 *Справка по использованию CircleBot:*", parse_mode=ParseMode.MARKDOWN)
-    await message.answer(
-        "1. Отправь мне короткое видео (до 50 МБ).\n"
-        "2. Выбери нужную часть кадра: по умолчанию Центр, но ты можешь выбрать слева/справа/сверху/снизу.\n"
-        "3. Или задай свои координаты обрезки в формате `x:y` — я обрежу точную область 480x480 пикселей.\n\n"
-        "👁 Я покажу предпросмотр перед созданием кружка.\n"
-        "🔁 Для сброса состояния — /reset",
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-
-@dp.message(F.text == "/reset")
-async def reset_handler(message: types.Message):
-    user_id = message.from_user.id
-    custom_crop_coords.pop(user_id, None)
-    await message.reply("🔄 Ваше состояние сброшено. Можешь отправить новое видео заново!")
+    await message.answer("Привет! Отправь мне видео, и я сделаю из него видеокружок 🎥")
 
 
 @dp.message(F.video | F.video_note)
@@ -64,24 +44,25 @@ async def handle_video(message: types.Message):
 
     buttons = []
     if orientation == "horizontal":
-        buttons = [[
-            InlineKeyboardButton(text="◀️ Слева", callback_data=f"crop:left:{message.message_id}"),
-            InlineKeyboardButton(text="🔲 Центр", callback_data=f"crop:center:{message.message_id}"),
-            InlineKeyboardButton(text="▶️ Справа", callback_data=f"crop:right:{message.message_id}")
-        ]]
+        buttons = [
+            [InlineKeyboardButton(text="◀️ Слева", callback_data=f"crop:left:{message.message_id}"),
+             InlineKeyboardButton(text="🔲 Центр", callback_data=f"crop:center:{message.message_id}"),
+             InlineKeyboardButton(text="▶️ Справа", callback_data=f"crop:right:{message.message_id}")]
+        ]
     else:
-        buttons = [[
-            InlineKeyboardButton(text="🔼 Сверху", callback_data=f"crop:top:{message.message_id}"),
-            InlineKeyboardButton(text="🔳 Центр", callback_data=f"crop:center:{message.message_id}"),
-            InlineKeyboardButton(text="🔽 Снизу", callback_data=f"crop:bottom:{message.message_id}")
-        ]]
+        buttons = [
+            [InlineKeyboardButton(text="🔼 Сверху", callback_data=f"crop:top:{message.message_id}"),
+             InlineKeyboardButton(text="🔳 Центр", callback_data=f"crop:center:{message.message_id}"),
+             InlineKeyboardButton(text="🔽 Снизу", callback_data=f"crop:bottom:{message.message_id}")]
+        ]
 
     buttons.append([InlineKeyboardButton(text="🎯 Свой выбор (ввести x:y)", callback_data=f"crop:custom:{message.message_id}")])
+
     markup = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.reply("Какую часть видео оставить?", reply_markup=markup)
 
 
-@dp.callback_query(F.data.startswith("crop:"))
+@dp.callback_query(lambda c: c.data and c.data.startswith("crop:"))
 async def crop_callback(callback: CallbackQuery):
     try:
         logging.info(f"[CALLBACK] data: {callback.data}")
@@ -101,8 +82,6 @@ async def crop_callback(callback: CallbackQuery):
             return
 
         file_id, orientation, user_id = pending_videos[msg_id]
-
-        file_id, orientation, user_id = pending_videos.get(msg_id)
         input_file = f"input_{user_id}.mp4"
         output_file = f"output_{user_id}.mp4"
 
@@ -123,15 +102,18 @@ async def crop_callback(callback: CallbackQuery):
             await callback.message.edit_text("✍️ Введите координаты обрезки в формате `x:y` (например, `200:100`)", parse_mode=ParseMode.MARKDOWN)
             return
 
-        crop_expr = {
-            "left": "crop=in_h:in_h:0:0",
-            "center": "crop=in_h:in_h:(in_w-in_h)/2:0",
-            "right": "crop=in_h:in_h:(in_w-in_h):0"
-        } if orientation == "horizontal" else {
-            "top": "crop=in_w:in_w:0:0",
-            "center": "crop=in_w:in_w:0:(in_h-in_w)/2",
-            "bottom": "crop=in_w:in_w:0:(in_h-in_w)"
-        }[position]
+        if orientation == "horizontal":
+            crop_expr = {
+                "left": "crop=in_h:in_h:0:0",
+                "center": "crop=in_h:in_h:(in_w-in_h)/2:0",
+                "right": "crop=in_h:in_h:(in_w-in_h):0"
+            }[position]
+        else:
+            crop_expr = {
+                "top": "crop=in_w:in_w:0:0",
+                "center": "crop=in_w:in_w:0:(in_h-in_w)/2",
+                "bottom": "crop=in_w:in_w:0:(in_h-in_w)"
+            }[position]
 
         await callback.message.edit_text("🔄 Обрабатываю видео, подожди немного...")
 
@@ -171,7 +153,9 @@ async def handle_custom_crop_input(message: types.Message):
         return
 
     try:
-        x, y = map(int, message.text.strip().split(":"))
+        x, y = message.text.strip().split(":")
+        x = int(x)
+        y = int(y)
         file_id, input_file, width, height = custom_crop_coords.pop(user_id)
         output_file = f"output_{user_id}.mp4"
 
