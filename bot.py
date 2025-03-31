@@ -205,13 +205,10 @@ async def handle_webhook(request: web.Request):
     print("💥 Пришёл запрос на вебхук!")
     ...
     try:
-        data = await request.json()
-print("🔥 RAW UPDATE:", data)
-        update = types.Update.model_validate(data)
-        await dp.feed_update(bot, update)
-    except Exception as e:
-        logging.exception("Ошибка при обработке вебхука:")
-    return web.Response()
+    data = await request.json()
+    print("🔥 RAW UPDATE:", data)
+    update = types.Update.model_validate(data)
+    await dp.feed_update(bot, update)
 
 
 app = web.Application()
