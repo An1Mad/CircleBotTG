@@ -20,6 +20,7 @@ dp = Dispatcher()
 
 processed_messages = set()
 pending_videos = {}  # message_id -> (file_id, orientation, user_id)
+custom_crop_coords = {}  # user_id -> (file_id, input_file, width, height)
 
 
 @dp.message(CommandStart())
@@ -55,14 +56,21 @@ async def handle_video(message: types.Message):
              InlineKeyboardButton(text="🔽 Снизу", callback_data=f"crop:bottom:{message.message_id}")]
         ]
 
+    buttons.append([InlineKeyboardButton(text="🎯 Свой выбор (ввести x:y)", callback_data=f"crop:custom:{message.message_id}")])
+
     markup = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.reply("Какую часть видео оставить?", reply_markup=markup)
+
+
+@dp.callback_query()
+async def debug_all_callbacks(callback: CallbackQuery):
+    logging.warning(f"[DEBUG] Пришёл callback: {callback.data}")
 
 
 @dp.callback_query(F.data.regexp(r"^crop:(left|center|right|top|bottom):\d+$"))
 async def crop_callback(callback: CallbackQuery):
     try:
-        logging.info(f"[CALLBACK] data: {callback.data}")
+        logging.info(f"[CALLBACK] Получен колбэк: {callback.data}")
 
         parts = callback.data.split(":")
         if len(parts) != 3:
@@ -127,6 +135,55 @@ async def crop_callback(callback: CallbackQuery):
     except Exception as e:
         logging.error(f"Ошибка при обработке видео: {e}")
         await callback.message.answer("Произошла ошибка при обработке видео 😔")
+    finally:
+        for file in [input_file, output_file, f"preview_{user_id}.jpg"]:
+            if file and os.path.exists(file):
+                os.remove(file)
+
+
+@dp.message(F.text.regexp(r"^\d+:\d+$"))
+async def handle_custom_crop_input(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in custom_crop_coords:
+        return
+
+    try:
+        x, y = message.text.strip().split(":")
+        x = int(x)
+        y = int(y)
+        file_id, input_file, width, height = custom_crop_coords.pop(user_id)
+        output_file = f"output_{user_id}.mp4"
+
+        if x < 0 or y < 0 or x + 480 > width or y + 480 > height:
+            await message.reply("❌ Неверные координаты. Область crop должна помещаться в видео (480x480). Попробуйте снова.")
+            return
+
+        crop_expr = f"crop=480:480:{x}:{y}"
+        preview_file = f"preview_{user_id}.jpg"
+
+        subprocess.run([
+            "ffmpeg", "-i", input_file, "-ss", "00:00:01.000", "-vframes", "1",
+            "-vf", crop_expr, preview_file
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        await message.reply_photo(FSInputFile(preview_file), caption="Вот как будет выглядеть кружок")
+        await message.reply("🔄 Обрабатываю видео по вашим координатам...")
+
+        cmd = [
+            "ffmpeg", "-y", "-i", input_file, "-t", "60",
+            "-vf", f"{crop_expr},scale=480:480",
+            "-c:v", "libx264", "-profile:v", "main", "-level", "3.1", "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", "128k",
+            output_file
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
+        await message.reply_video_note(FSInputFile(output_file))
+
+    except Exception as e:
+        logging.error(f"Ошибка при пользовательском crop: {e}")
+        await message.answer("Произошла ошибка при пользовательской обрезке 😔")
     finally:
         for file in [input_file, output_file, f"preview_{user_id}.jpg"]:
             if file and os.path.exists(file):
