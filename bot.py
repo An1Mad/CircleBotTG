@@ -64,7 +64,8 @@ async def handle_video(message: types.Message):
 
 @dp.callback_query()
 async def debug_all_callbacks(callback: CallbackQuery):
-    logging.warning(f"[DEBUG] Пришёл callback: {callback.data}")
+    logging.info(f"[DEBUG] Callback data: {callback.data}")
+    await callback.answer("👀 Обработка…")
 
 
 @dp.callback_query(F.data.regexp(r"^crop:(left|center|right|top|bottom):\d+$"))
