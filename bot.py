@@ -18,6 +18,9 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# ✅ Память о уже обработанных сообщениях
+processed_messages = set()
+
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
@@ -26,12 +29,19 @@ async def start_handler(message: types.Message):
 
 @dp.message(F.video | F.video_note)
 async def handle_video(message: types.Message):
+    if message.message_id in processed_messages:
+        return
+    processed_messages.add(message.message_id)
+
     input_file = None
     output_file = None
 
     try:
         video = message.video or message.video_note
         file_id = video.file_id
+
+        # ⚠️ Уведомление пользователю
+        processing_message = await message.reply("🔄 Обрабатываю видео, подожди немного...")
 
         # Пытаемся получить файл
         try:
@@ -89,6 +99,13 @@ async def handle_video(message: types.Message):
         await message.reply("Произошла ошибка при обработке видео 😔")
 
     finally:
+        # Удаляем сообщение "обрабатываю"
+        try:
+            await processing_message.delete()
+        except:
+            pass
+
+        # Удаляем файлы
         for file in [input_file, output_file]:
             if file and os.path.exists(file):
                 os.remove(file)
