@@ -12,7 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "circlebotsecret")
 WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
 WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")
-WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -34,72 +34,65 @@ async def handle_video(message: types.Message):
     file_id = video.file_id
     width = video.width
     height = video.height
-    orientation = "horizontal" if width > height else "vertical"
 
     input_file = f"input_{message.from_user.id}.mp4"
     output_file = f"output_{message.from_user.id}.mp4"
 
-    try:
-        file = await bot.get_file(file_id)
-        if file.file_size > 49 * 1024 * 1024:
-            await message.reply("Файл слишком большой (более 49 МБ). Пожалуйста, сократи его или сожми 💾")
-            return
+    file = await bot.get_file(file_id)
+    if file.file_size > 49 * 1024 * 1024:
+        await message.answer("Файл слишком большой (более 49 МБ). Пожалуйста, сократи его или сожми 💾")
+        return
 
-        await bot.download_file(file.file_path, input_file)
-        await message.reply("🔄 Обрабатываю видео, подожди немного...")
+    await message.answer("🔄 Обрабатываю видео, подожди немного...")
+    await bot.download_file(file.file_path, input_file)
 
-        if orientation == "horizontal":
-            crop_expr = "crop=in_h:in_h:(in_w-in_h)/2:0"
-        else:
-            crop_expr = "crop=in_w:in_w:0:(in_h-in_w)/2.5"
+    if width > height:
+        crop_expr = "crop=in_h:in_h:(in_w-in_h)/2:0"
+    else:
+        crop_expr = "crop=in_w:in_w:0:(in_h-in_w)/3"  # немного выше центра
 
-        cmd = [
-            "ffmpeg", "-y", "-i", input_file, "-t", "60",
-            "-vf", f"{crop_expr},scale=480:480",
-            "-c:v", "libx264", "-profile:v", "main", "-level", "3.1", "-preset", "veryfast",
-            "-c:a", "aac", "-b:a", "128k",
-            output_file
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    cmd = [
+        "ffmpeg", "-y", "-i", input_file, "-t", "60",
+        "-vf", f"{crop_expr},scale=480:480",
+        "-c:v", "libx264", "-profile:v", "main", "-level", "3.1", "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", "128k",
+        output_file
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
-        await message.reply_video_note(FSInputFile(output_file))
+    await bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.UPLOAD_VIDEO_NOTE)
+    await message.reply_video_note(FSInputFile(output_file))
 
-    except Exception as e:
-        logging.error(f"Ошибка при обработке видео: {e}")
-        await message.reply("Произошла ошибка при обработке видео 😔")
-    finally:
-        for file in [input_file, output_file]:
-            if file and os.path.exists(file):
-                os.remove(file)
-
+    for file in [input_file, output_file]:
+        if os.path.exists(file):
+            os.remove(file)
 
 async def on_startup(_: web.Application):
-    if not WEBHOOK_URL:
-        logging.error("❌ WEBHOOK_URL не определён, переменная RENDER_EXTERNAL_URL пуста")
-        return
-    try:
-        await bot.set_webhook(WEBHOOK_URL)
-        logging.info(f"✅ Webhook установлен: {WEBHOOK_URL}")
-    except Exception as e:
-        logging.exception("❌ Ошибка при установке вебхука")
+    await bot.set_webhook(WEBHOOK_URL)
+    logging.info(f"Webhook установлен: {WEBHOOK_URL}")
 
+    # Запускаем пульс логгера
+    asyncio.create_task(heartbeat())
 
 async def on_shutdown(_: web.Application):
     await bot.delete_webhook()
     logging.info("Webhook удалён")
 
-
 async def handle_webhook(request: web.Request):
     try:
+        logging.info("📮 Пришёл запрос на вебхук!")
         data = await request.json()
-        logging.info(f"📥 RAW UPDATE: {data}")
+        logging.info("🔥 RAW UPDATE:", data)
         update = types.Update.model_validate(data)
         await dp.feed_update(bot, update)
     except Exception as e:
         logging.exception("Ошибка при обработке вебхука:")
     return web.Response()
 
+async def heartbeat():
+    while True:
+        logging.info("💓 Бот живой, всё норм")
+        await asyncio.sleep(300)  # раз в 5 минут
 
 app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle_webhook)
@@ -107,4 +100,8 @@ app.on_startup.append(on_startup)
 app.on_shutdown.append(on_shutdown)
 
 if __name__ == "__main__":
-    web.run_app(app, port=int(os.getenv("PORT", 10000)))
+    try:
+        logging.info("🔥 Стартуем aiohttp web-приложение")
+        web.run_app(app, port=int(os.getenv("PORT", 10000)))
+    except Exception as e:
+        logging.exception(f"🚨 Ошибка при запуске web.run_app: {e}")
