@@ -202,6 +202,8 @@ async def on_shutdown(_: web.Application):
 
 
 async def handle_webhook(request: web.Request):
+    print("💥 Пришёл запрос на вебхук!")
+    ...
     try:
         data = await request.json()
         update = types.Update.model_validate(data)
