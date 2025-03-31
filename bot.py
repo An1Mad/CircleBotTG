@@ -22,11 +22,9 @@ processed_messages = set()
 pending_videos = {}  # message_id -> (file_id, orientation, user_id)
 custom_crop_coords = {}  # user_id -> (file_id, input_file, width, height)
 
-
 @dp.message(CommandStart())
 async def start_handler(message: types.Message):
     await message.answer("Привет! Отправь мне видео, и я сделаю из него видеокружок 🎥")
-
 
 @dp.message(F.video | F.video_note)
 async def handle_video(message: types.Message):
@@ -61,7 +59,6 @@ async def handle_video(message: types.Message):
     markup = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.reply("Какую часть видео оставить?", reply_markup=markup)
 
-
 @dp.callback_query(F.data.regexp(r"^crop:(left|center|right|top|bottom|custom):\d+$"))
 async def crop_callback(callback: CallbackQuery):
     try:
@@ -69,15 +66,11 @@ async def crop_callback(callback: CallbackQuery):
 
         parts = callback.data.split(":")
         if len(parts) != 3:
-            logging.warning(f"[CALLBACK] Неверный формат: {callback.data}")
-            await callback.message.answer("⚠️ Ошибка формата кнопки")
+            await callback.message.answer("⚠️ Неверный формат запроса")
             return
 
         _, position, msg_id = parts
-        logging.info(f"[CALLBACK] position={position}, msg_id={msg_id}")
-
         if msg_id not in pending_videos:
-            logging.warning(f"[CALLBACK] msg_id {msg_id} не найден в pending_videos")
             await callback.message.answer("⚠️ Видео не найдено, начни сначала")
             return
 
@@ -87,7 +80,7 @@ async def crop_callback(callback: CallbackQuery):
 
         file = await bot.get_file(file_id)
         if file.file_size > 49 * 1024 * 1024:
-            await callback.message.answer("Файл слишком большой (более 49 МБ). Пожалуйста, сократи его или сожми 💾")
+            await callback.message.answer("Файл слишком большой (более 49 МБ). Пожалуйста, сократи его 💾")
             return
 
         await bot.download_file(file.file_path, input_file)
@@ -102,18 +95,13 @@ async def crop_callback(callback: CallbackQuery):
             await callback.message.edit_text("✍️ Введите координаты обрезки в формате `x:y` (например, `200:100`)", parse_mode=ParseMode.MARKDOWN)
             return
 
-        if orientation == "horizontal":
-            crop_expr = {
-                "left": "crop=in_h:in_h:0:0",
-                "center": "crop=in_h:in_h:(in_w-in_h)/2:0",
-                "right": "crop=in_h:in_h:(in_w-in_h):0"
-            }[position]
-        else:
-            crop_expr = {
-                "top": "crop=in_w:in_w:0:0",
-                "center": "crop=in_w:in_w:0:(in_h-in_w)/2",
-                "bottom": "crop=in_w:in_w:0:(in_h-in_w)"
-            }[position]
+        crop_expr = {
+            "left": "crop=in_h:in_h:0:0",
+            "center": "crop=in_h:in_h:(in_w-in_h)/2:0",
+            "right": "crop=in_h:in_h:(in_w-in_h):0",
+            "top": "crop=in_w:in_w:0:0",
+            "bottom": "crop=in_w:in_w:0:(in_h-in_w)"
+        }[position]
 
         await callback.message.edit_text("🔄 Обрабатываю видео, подожди немного...")
 
@@ -138,13 +126,12 @@ async def crop_callback(callback: CallbackQuery):
         await callback.message.reply_video_note(FSInputFile(output_file))
 
     except Exception as e:
-        logging.error(f"Ошибка при обработке видео: {e}")
+        logging.error(f"Ошибка в crop_callback: {e}")
         await callback.message.answer("Произошла ошибка при обработке видео 😔")
     finally:
-        for file in [input_file, output_file, f"preview_{user_id}.jpg"]:
-            if file and os.path.exists(file):
-                os.remove(file)
-
+        for f in [input_file, output_file, f"preview_{user_id}.jpg"]:
+            if f and os.path.exists(f):
+                os.remove(f)
 
 @dp.message(F.text.regexp(r"^\d+:\d+$"))
 async def handle_custom_crop_input(message: types.Message):
@@ -153,14 +140,12 @@ async def handle_custom_crop_input(message: types.Message):
         return
 
     try:
-        x, y = message.text.strip().split(":")
-        x = int(x)
-        y = int(y)
+        x, y = map(int, message.text.strip().split(":"))
         file_id, input_file, width, height = custom_crop_coords.pop(user_id)
         output_file = f"output_{user_id}.mp4"
 
         if x < 0 or y < 0 or x + 480 > width or y + 480 > height:
-            await message.reply("❌ Неверные координаты. Область crop должна помещаться в видео (480x480). Попробуйте снова.")
+            await message.reply("❌ Неверные координаты. Область crop должна помещаться в 480x480. Попробуйте снова.")
             return
 
         crop_expr = f"crop=480:480:{x}:{y}"
@@ -187,23 +172,20 @@ async def handle_custom_crop_input(message: types.Message):
         await message.reply_video_note(FSInputFile(output_file))
 
     except Exception as e:
-        logging.error(f"Ошибка при пользовательском crop: {e}")
-        await message.answer("Произошла ошибка при пользовательской обрезке 😔")
+        logging.error(f"Ошибка при пользовательской обрезке: {e}")
+        await message.answer("Произошла ошибка при обрезке 😔")
     finally:
-        for file in [input_file, output_file, f"preview_{user_id}.jpg"]:
-            if file and os.path.exists(file):
-                os.remove(file)
-
+        for f in [input_file, output_file, f"preview_{user_id}.jpg"]:
+            if f and os.path.exists(f):
+                os.remove(f)
 
 async def on_startup(_: web.Application):
     await bot.set_webhook(WEBHOOK_URL)
     logging.info(f"Webhook установлен: {WEBHOOK_URL}")
 
-
 async def on_shutdown(_: web.Application):
     await bot.delete_webhook()
     logging.info("Webhook удалён")
-
 
 async def handle_webhook(request: web.Request):
     try:
@@ -213,7 +195,6 @@ async def handle_webhook(request: web.Request):
     except Exception as e:
         logging.exception("Ошибка при обработке вебхука:")
     return web.Response()
-
 
 app = web.Application()
 app.router.add_post(WEBHOOK_PATH, handle_webhook)
