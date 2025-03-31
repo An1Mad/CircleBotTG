@@ -62,7 +62,7 @@ async def handle_video(message: types.Message):
     await message.reply("Какую часть видео оставить?", reply_markup=markup)
 
 
-@dp.callback_query(lambda c: c.data and c.data.startswith("crop:"))
+@dp.callback_query(F.data.regexp(r"^crop:(left|center|right|top|bottom|custom):\\d+$"))
 async def crop_callback(callback: CallbackQuery):
     try:
         logging.info(f"[CALLBACK] data: {callback.data}")
