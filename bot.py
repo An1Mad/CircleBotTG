@@ -2,23 +2,21 @@ import asyncio
 import os
 import logging
 import subprocess
-
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.enums.chat_action import ChatAction
-from aiogram.types import FSInputFile
+from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import CommandStart
-from aiogram.enums import ParseMode
+from aiogram.types import FSInputFile
+from aiohttp import web
 
-# 🔐 Получаем токен из переменной окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "circlebotsecret")  # Любая строка, например UUID
+WEBHOOK_PATH = f"/webhook/{WEBHOOK_SECRET}"
+WEBHOOK_HOST = os.getenv("RENDER_EXTERNAL_URL")  # Render сам задаёт эту переменную
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
-# Логгирование
 logging.basicConfig(level=logging.INFO)
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-# ✅ Память о уже обработанных сообщениях
 processed_messages = set()
 
 
@@ -39,11 +37,8 @@ async def handle_video(message: types.Message):
     try:
         video = message.video or message.video_note
         file_id = video.file_id
-
-        # ⚠️ Уведомление пользователю
         processing_message = await message.reply("🔄 Обрабатываю видео, подожди немного...")
 
-        # Пытаемся получить файл
         try:
             file = await bot.get_file(file_id)
         except Exception as api_error:
@@ -62,31 +57,20 @@ async def handle_video(message: types.Message):
             )
             return
 
-        # Проверка размера
         if file.file_size > 49 * 1024 * 1024:
             await message.reply("Файл слишком большой (более 49 МБ). Пожалуйста, сократи его или сожми 💾")
             return
 
-        # Генерация временных имён
         input_file = f"input_{message.from_user.id}.mp4"
         output_file = f"output_{message.from_user.id}.mp4"
 
-        # Скачивание
         await bot.download_file(file.file_path, input_file)
 
-        # Перекодировка в кружок (с сохранением звука)
         cmd = [
-            "ffmpeg",
-            "-y",
-            "-i", input_file,
-            "-t", "60",
+            "ffmpeg", "-y", "-i", input_file, "-t", "60",
             "-vf", "crop='min(in_w, in_h)':'min(in_w, in_h)',scale=480:480",
-            "-c:v", "libx264",
-            "-profile:v", "main",
-            "-level", "3.1",
-            "-preset", "veryfast",
-            "-c:a", "aac",
-            "-b:a", "128k",
+            "-c:v", "libx264", "-profile:v", "main", "-level", "3.1", "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", "128k",
             output_file
         ]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -99,21 +83,33 @@ async def handle_video(message: types.Message):
         await message.reply("Произошла ошибка при обработке видео 😔")
 
     finally:
-        # Удаляем сообщение "обрабатываю"
         try:
             await processing_message.delete()
         except:
             pass
-
-        # Удаляем файлы
         for file in [input_file, output_file]:
             if file and os.path.exists(file):
                 os.remove(file)
 
 
-async def main():
-    await dp.start_polling(bot)
+async def on_startup(_: web.Application):
+    await bot.set_webhook(WEBHOOK_URL)
 
+
+async def on_shutdown(_: web.Application):
+    await bot.delete_webhook()
+
+
+async def handle_webhook(request: web.Request):
+    body = await request.read()
+    await dp.feed_webhook_update(bot, request.headers, body)
+    return web.Response()
+
+
+app = web.Application()
+app.router.add_post(WEBHOOK_PATH, handle_webhook)
+app.on_startup.append(on_startup)
+app.on_shutdown.append(on_shutdown)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    web.run_app(app, port=int(os.getenv("PORT", 10000)))
